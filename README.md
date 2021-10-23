@@ -52,11 +52,56 @@ data "aws_iam_role" "ecr" {
 }
 
 module "ecr" {
-  source = "cloudposse/ecr/aws"
-  namespace              = "eg"
-  stage                  = "test"
-  name                   = "ecr"
-  principals_full_access = [data.aws_iam_role.ecr.arn]
+  source    = "git::https://github.com/alysonfranklin/terraform-aws-ecr.git?ref=tags/0.32.3"
+  namespace = "appresource"
+  enable_lifecycle_policy	= true // Defina como falso para evitar que o módulo adicione políticas de ciclo de vida aos repositórios
+  enabled	= true // Defina como falso para evitar que o módulo crie quaisquer recursos
+  // Nome dos prefixos de tags de imagem que não devem ser destruídos. Útil se você marcar imagens com nomes como dev, staging e prod
+  protected_tags = ["latest"]
+  scan_images_on_push	= true // Indica se as imagens são scaneadas após serem enviadas para o repositório (verdadeiro) ou não (falso)
+  image_tag_mutability = "IMMUTABLE" // A configuração de mutabilidade de tag para o repositório. Deve ser um dos seguintes: MUTABLE ou IMMUTABLE
+  max_image_count	= 50 // Quantas versões da imagem do Docker AWS ECR armazenará
+  tags = var.default_tags
+
+  // encryption_configuration = 
+  // image_names	= ["repo1", "repo2"]
+  // principals_readonly_access = [] // ARNs principais fornecerão acesso somente leitura ao ECR
+  // principals_full_access = [data.aws_iam_policy_document.ecr_readonly_access.json] // ARNs principais devem fornecer acesso total ao ECR
+}
+
+data "aws_iam_policy_document" "ecr_readonly_access" {
+  statement {
+    sid    = "ReadonlyAccess"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::account-id-xxx:root"] # Conta AWS Stage
+    }
+    actions = [
+      "ecr:GetAuthorizationToken",
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:GetRepositoryPolicy",
+      "ecr:DescribeRepositories",
+      "ecr:ListImages",
+      "ecr:DescribeImages",
+      "ecr:BatchGetImage",
+      "ecr:DescribeImageScanFindings",
+    ]
+  }
+}
+
+data "aws_iam_policy_document" "ecr_access" {
+  source_json   = data.aws_iam_policy_document.ecr_readonly_access.json
+  # The ecr_full_access policy is another policy document resource with more
+  # ARNs for roles and resources which can push to ECR
+  #override_json = data.aws_iam_policy_document.ecr_full_access.json
+}
+
+resource "aws_ecr_repository_policy" "ecr" {
+  repository = module.ecr.repository_name
+  policy     = data.aws_iam_policy_document.ecr_access.json
 }
 ```
 
